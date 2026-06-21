@@ -4,8 +4,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 
 @SpringBootApplication
-class TwitterApplication
+class YoutubeApplication
 
 fun main(args: Array<String>) {
-    runApplication<TwitterApplication>(*args)
+    runApplication<YoutubeApplication>(*args)
 }

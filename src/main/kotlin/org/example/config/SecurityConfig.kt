@@ -3,6 +3,7 @@ package org.example.config
 import org.example.security.JwtFilter
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.http.HttpMethod
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
@@ -20,6 +21,9 @@ class SecurityConfig(private val jwtFilter: JwtFilter) {
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .authorizeHttpRequests {
                 it.requestMatchers("/auth/**").permitAll()
+                it.requestMatchers(HttpMethod.GET, "/videos/**").permitAll()
+                it.requestMatchers(HttpMethod.GET, "/analytics/**").permitAll()
+                it.requestMatchers(HttpMethod.POST, "/analytics/view").permitAll()
                 it.anyRequest().authenticated()
             }
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter::class.java)

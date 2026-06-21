@@ -7,7 +7,11 @@ import org.springframework.stereotype.Service
 class KafkaEventProducer(
     private val kafkaTemplate: KafkaTemplate<String, String>
 ) {
-    fun publishPostCreated(postId: String) {
-        kafkaTemplate.send("post-created", postId)
+    fun publishVideoRegistered(videoId: String) {
+        kafkaTemplate.send("video-registered", videoId)
+    }
+
+    fun publishViewEvent(videoId: String) {
+        kafkaTemplate.send("view-event", videoId)
     }
 }

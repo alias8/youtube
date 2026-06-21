@@ -1,18 +1,18 @@
 package org.example.service
 
-import jakarta.transaction.Transactional
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Service
 
 @Service
-class KafkaConsumer(
-) {
-    @Transactional
-    @KafkaListener(topics = ["post-created"], groupId = "feed-fanout-group")
-    fun consume(message: String) {
-        // this is where async work will happen async write this
-        listOf("").forEach { item ->
-            // save something to db
-        }
+class KafkaConsumer {
+
+    @KafkaListener(topics = ["video-registered"], groupId = "youtube-group")
+    fun onVideoRegistered(videoId: String) {
+        // Trigger transcoding pipeline, thumbnail generation, etc.
+    }
+
+    @KafkaListener(topics = ["view-event"], groupId = "youtube-group")
+    fun onViewEvent(videoId: String) {
+        // Flush Redis histogram to DB for durability, update trending scores, etc.
     }
 }
