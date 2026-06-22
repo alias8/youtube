@@ -14,6 +14,7 @@ import java.time.Instant
 const val BUCKET_COUNT = 100
 const val PENDING_FLUSH_KEY = "pending-histogram-flush"
 const val PENDING_WATCH_RESUME_FLUSH_KEY = "pending-watch-resume-flush"
+const val PENDING_VIEW_COUNT_FLUSH_KEY = "pending-view-count-flush"
 
 @Service
 class AnalyticsService(
@@ -72,6 +73,15 @@ class AnalyticsService(
             existing?.copy(watchedAt = Instant.now())
                 ?: WatchHistory(userId = userId, videoId = videoId)
         )
+
+        // Count the view only if this user hasn't watched within the last 24 hours.
+        // setIfAbsent is atomic — no race between concurrent requests from the same user.
+        val counted = redisTemplate.opsForValue()
+            .setIfAbsent("view-dedup:$videoId:$userId", "1", Duration.ofDays(1))
+        if (counted == true) {
+            redisTemplate.opsForValue().increment("views:total:$videoId")
+            redisTemplate.opsForSet().add(PENDING_VIEW_COUNT_FLUSH_KEY, videoId)
+        }
     }
 
     fun getHistogram(videoId: String): HistogramResponse {

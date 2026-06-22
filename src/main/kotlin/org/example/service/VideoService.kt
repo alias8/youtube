@@ -79,6 +79,7 @@ class VideoService(
         uploaderId = uploaderId,
         durationSeconds = durationSeconds,
         status = status.name,
-        createdAt = createdAt.toString()
+        createdAt = createdAt.toString(),
+        viewCount = viewCount
     )
 }

@@ -16,7 +16,8 @@ data class VideoResponse(
     val uploaderId: String,
     val durationSeconds: Long,
     val status: String,
-    val createdAt: String
+    val createdAt: String,
+    val viewCount: Long
 )
 
 data class PlaybackUrlResponse(val playbackUrl: String)

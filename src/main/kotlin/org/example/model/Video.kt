@@ -31,7 +31,9 @@ data class Video(
     @Column(nullable = false)
     val status: VideoStatus = VideoStatus.READY,
 
-    val createdAt: Instant = Instant.now()
+    val createdAt: Instant = Instant.now(),
+
+    val viewCount: Long = 0
 )
 
 enum class VideoStatus { PROCESSING, READY }
