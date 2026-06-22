@@ -2,18 +2,24 @@ package org.example.service
 
 import org.example.dto.HistogramResponse
 import org.example.model.VideoHistogram
+import org.example.model.WatchHistory
 import org.example.repository.VideoHistogramRepository
 import org.example.repository.VideoRepository
+import org.example.repository.WatchHistoryRepository
 import org.springframework.data.redis.core.RedisTemplate
 import org.springframework.stereotype.Service
+import java.time.Duration
+import java.time.Instant
 
 const val BUCKET_COUNT = 100
 const val PENDING_FLUSH_KEY = "pending-histogram-flush"
+const val PENDING_WATCH_RESUME_FLUSH_KEY = "pending-watch-resume-flush"
 
 @Service
 class AnalyticsService(
     private val videoRepository: VideoRepository,
     private val videoHistogramRepository: VideoHistogramRepository,
+    private val watchHistoryRepository: WatchHistoryRepository,
     private val redisTemplate: RedisTemplate<String, String>,
     private val kafkaEventProducer: KafkaEventProducer
 ) {
@@ -44,7 +50,28 @@ class AnalyticsService(
             redisTemplate.opsForSet().add(PENDING_FLUSH_KEY, videoId)
         }
 
+        updateLastWatchedSeconds(videoId, userId, endSeconds)
         kafkaEventProducer.publishViewEvent(videoId, userId, startSeconds, endSeconds)
+    }
+    
+    // Called by client every 30 seconds. Writes to Redis only; WatchResumeFlushService persists to DB.
+    fun updateLastWatchedSeconds(videoId: String, userId: String?, lastWatchedSeconds: Long) {
+        if (userId == null) return
+        redisTemplate.opsForValue().set(
+            "watch-resume:$userId:$videoId",
+            lastWatchedSeconds.toString(),
+            Duration.ofDays(1)
+        )
+        redisTemplate.opsForSet().add(PENDING_WATCH_RESUME_FLUSH_KEY, "$userId:$videoId")
+    }
+
+    // Called by the client after 10 seconds of playback to record the video in watch history.
+    fun markWatched(videoId: String, userId: String) {
+        val existing = watchHistoryRepository.findByUserIdAndVideoId(userId, videoId)
+        watchHistoryRepository.save(
+            existing?.copy(watchedAt = Instant.now())
+                ?: WatchHistory(userId = userId, videoId = videoId)
+        )
     }
 
     fun getHistogram(videoId: String): HistogramResponse {

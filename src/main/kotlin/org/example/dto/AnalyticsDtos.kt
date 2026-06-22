@@ -6,6 +6,11 @@ data class ViewEventRequest(
     val endSeconds: Long
 )
 
+data class LastWatchedSecondsUpdated(
+    val videoId: String,
+    val lastWatchedSeconds: Long,
+)
+
 data class HistogramResponse(
     val videoId: String,
     val buckets: List<Long>,

@@ -4,6 +4,7 @@ import org.example.dto.PlaybackUrlResponse
 import org.example.dto.RegisterVideoRequest
 import org.example.dto.UploadUrlResponse
 import org.example.dto.VideoResponse
+import org.example.service.AnalyticsService
 import org.example.service.VideoService
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -12,7 +13,10 @@ import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/videos")
-class VideoController(private val videoService: VideoService) {
+class VideoController(
+    private val videoService: VideoService,
+    private val analyticsService: AnalyticsService
+) {
 
     @GetMapping("/upload-url")
     fun getUploadUrl(
@@ -44,5 +48,15 @@ class VideoController(private val videoService: VideoService) {
     fun getPlaybackUrl(@PathVariable id: String): ResponseEntity<PlaybackUrlResponse> {
         val response = videoService.getPlaybackUrl(id) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(response)
+    }
+
+    // Client calls this after 10 seconds of actual playback to record the video in watch history.
+    @PostMapping("/{id}/watched")
+    fun markWatched(
+        @PathVariable id: String,
+        authentication: Authentication
+    ): ResponseEntity<Void> {
+        analyticsService.markWatched(id, authentication.name)
+        return ResponseEntity.ok().build()
     }
 }

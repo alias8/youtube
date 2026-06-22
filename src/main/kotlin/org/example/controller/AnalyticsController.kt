@@ -1,6 +1,7 @@
 package org.example.controller
 
 import org.example.dto.HistogramResponse
+import org.example.dto.LastWatchedSecondsUpdated
 import org.example.dto.ViewEventRequest
 import org.example.service.AnalyticsService
 import org.springframework.http.ResponseEntity
@@ -22,6 +23,20 @@ class AnalyticsController(private val analyticsService: AnalyticsService) {
             userId = authentication?.name,
             startSeconds = request.startSeconds,
             endSeconds = request.endSeconds
+        )
+        return ResponseEntity.ok().build()
+    }
+
+    // Called by client every 30 seconds
+    @PostMapping("/updateLastWatchedSeconds")
+    fun updateLastWatchedSeconds(
+        @RequestBody request: LastWatchedSecondsUpdated,
+        authentication: Authentication?
+    ): ResponseEntity<Void> {
+        analyticsService.updateLastWatchedSeconds(
+            videoId = request.videoId,
+            userId = authentication?.name,
+            lastWatchedSeconds = request.lastWatchedSeconds,
         )
         return ResponseEntity.ok().build()
     }
