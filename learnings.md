@@ -104,3 +104,71 @@ The interval can be made configurable without redeploying:
 @Scheduled(fixedDelayString = "\${analytics.histogram.flush-interval-ms:60000}")
 fun flush() { ... }
 ```
+
+---
+
+## Watch History — lastWatchedSeconds (Resume Position)
+
+Tracks where the user left off so playback can resume from that point.
+
+**Model:** `watch_history` table has a `(user_id, video_id)` unique constraint. `lastWatchedSeconds` is a last-write-wins scalar — no aggregation needed, just the most recent position.
+
+**Two triggers that create/update the record:**
+1. `POST /videos/{id}/watched` — called by the client after 10s of playback; creates the row with `lastWatchedSeconds = 0`
+2. `POST /analytics/updateLastWatchedSeconds` — heartbeat called every 30s; updates position
+
+**Why not Kafka for this:**
+The histogram uses Kafka because many clients concurrently increment shared counters and the events fan out to downstream consumers (ML, recommendations). `lastWatchedSeconds` is a simple scalar per user/video pair — last-write-wins, no fan-out needed. Kafka adds ordering and durability that bring no benefit here.
+
+---
+
+## lastWatchedSeconds — Redis Write-Through Pattern
+
+Direct Postgres writes on every heartbeat would be ~33k writes/sec at 1M concurrent viewers (one per user per 30s). Instead:
+
+**Write path:**
+- Heartbeat → `SET watch-resume:{userId}:{videoId} {seconds} EX 86400` in Redis (in-memory, fast)
+- Also `SADD pending-watch-resume-flush {userId}:{videoId}` to track what needs flushing
+- `recordView` (called on pause/close) also calls `updateLastWatchedSeconds` with `endSeconds` so position is captured even if the client closes before the next heartbeat
+
+**Flush path (`WatchResumeFlushService`, every 30s):**
+1. SSCAN `pending-watch-resume-flush` — cursor-based, non-blocking
+2. `MGET` all `watch-resume:*` keys — single Redis round-trip
+3. `jdbcTemplate.batchUpdate` with `INSERT ... ON CONFLICT DO UPDATE` — single DB round-trip
+4. `SREM` all processed entries
+
+This gives crash-safety within one flush interval (30s) with minimal DB pressure.
+
+---
+
+## SMEMBERS vs SSCAN
+
+`SMEMBERS` is O(N) and **blocks the Redis event loop** for its entire duration — all other commands queue behind it. At 3000 entries this might be 5ms; at millions it could be seconds, starving every concurrent request.
+
+`SSCAN` iterates with a cursor in steps (hint: `COUNT 1000`). Redis processes ~1000 members, returns a cursor, and **releases the event loop** between steps. Other commands run in the gaps. Spring's `Cursor` handles the pagination internally — `.forEach` collects all entries across multiple round-trips transparently.
+
+`SSCAN` does not chunk the *processing* — all entries are still collected into memory before the batch runs. The benefit is purely that Redis stays responsive during the scan.
+
+---
+
+## N Individual DB Writes vs JDBC Batch Upsert
+
+At 3000 entries, old vs new at ~1ms DB round-trip:
+
+| | Old (N individual) | New (batch) |
+|---|---|---|
+| Redis reads | 3000 × GET = ~1,500ms | 1 × MGET = ~3ms |
+| DB reads | 3000 × SELECT = ~3,000ms | 0 |
+| DB writes | 3000 × UPDATE = ~3,000ms | 1 batch ≈ ~100ms |
+| **Total** | **~7.5s** | **~107ms** |
+
+~70x faster. The flush's `fixedDelay` clock doesn't start until the previous run finishes, so a 7.5s flush at 30s delay means the effective interval becomes 37.5s — and worsens under load.
+
+The batch upsert pattern:
+```sql
+INSERT INTO watch_history (id, user_id, video_id, watched_at, last_watched_seconds)
+VALUES (gen_random_uuid(), ?, ?, NOW(), ?)
+ON CONFLICT (user_id, video_id) DO UPDATE SET last_watched_seconds = EXCLUDED.last_watched_seconds
+```
+
+One statement handles both the first-time insert and subsequent updates. No prior SELECT needed.
