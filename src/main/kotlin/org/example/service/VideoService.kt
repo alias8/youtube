@@ -3,10 +3,14 @@ package org.example.service
 import org.example.dto.PlaybackUrlResponse
 import org.example.dto.RegisterVideoRequest
 import org.example.dto.UploadUrlResponse
+import org.example.dto.VideoPageResponse
 import org.example.dto.VideoResponse
 import org.example.model.Video
 import org.example.repository.VideoRepository
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
+import java.time.Instant
+import java.util.Base64
 
 @Service
 class VideoService(
@@ -35,7 +39,31 @@ class VideoService(
 
     fun getById(id: String): Video? = videoRepository.findById(id).orElse(null)
 
-    fun list(): List<VideoResponse> = videoRepository.findAll().map { it.toResponse() }
+    fun list(cursor: String?, limit: Int = 20): VideoPageResponse {
+        val pageable = PageRequest.of(0, limit + 1)
+        val videos = if (cursor == null) {
+            videoRepository.findAllByOrderByCreatedAtDescIdDesc(pageable)
+        } else {
+            val (createdAt, id) = decodeCursor(cursor)
+            videoRepository.findPage(createdAt, id, pageable)
+        }
+        val hasMore = videos.size > limit
+        val page = if (hasMore) videos.dropLast(1) else videos
+        return VideoPageResponse(
+            videos = page.map { it.toResponse() },
+            nextCursor = if (hasMore) encodeCursor(page.last()) else null,
+            hasMore = hasMore
+        )
+    }
+
+    private fun encodeCursor(video: Video): String =
+        Base64.getEncoder().encodeToString("${video.createdAt.toEpochMilli()}:${video.id}".toByteArray())
+
+    private fun decodeCursor(cursor: String): Pair<Instant, String> {
+        val decoded = String(Base64.getDecoder().decode(cursor))
+        val (epochMilli, id) = decoded.split(":", limit = 2)
+        return Instant.ofEpochMilli(epochMilli.toLong()) to id
+    }
 
     fun getResponseById(id: String): VideoResponse? = videoRepository.findById(id).orElse(null)?.toResponse()
 

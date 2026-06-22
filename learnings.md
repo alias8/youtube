@@ -172,3 +172,35 @@ ON CONFLICT (user_id, video_id) DO UPDATE SET last_watched_seconds = EXCLUDED.la
 ```
 
 One statement handles both the first-time insert and subsequent updates. No prior SELECT needed.
+
+---
+
+## Rate Limiting — Sliding Window Log with Redis ZSET
+
+Each user gets a ZSET keyed by `rate-limit:{action}:{userId}`. Every request is stored as a member scored by its timestamp in milliseconds. The window slides with time — old entries are evicted on each request, so the count always reflects only the last N milliseconds.
+
+**The three operations per request:**
+1. `ZREMRANGEBYSCORE key 0 (now - windowMs)` — evict requests older than the window
+2. `ZADD key score=now member="{now}:{uuid}"` — record this request
+3. `ZCARD key` — count remaining entries; if over limit, reject
+
+**Why a nonce (`{now}:{uuid}`) as the member:**
+ZSET members must be unique. Two requests at the exact same millisecond would have the same timestamp, so using the timestamp alone as the member would cause one to overwrite the other — undercounting requests. The UUID suffix makes every entry unique.
+
+**Why a Lua script:**
+Without it, two concurrent requests could both read `ZCARD = 2` (under a limit of 3), both pass, and both add their entries — resulting in 4 entries with the limit bypassed. The Lua script runs atomically on the Redis event loop; no other command can interleave between the three steps.
+
+**Walk-through at limit=3, window=60s:**
+```
+t=1000  ZREM(nothing) ZADD(score=1000) ZCARD=1 → ✅ allowed
+t=2000  ZREM(nothing) ZADD(score=2000) ZCARD=2 → ✅ allowed
+t=3000  ZREM(nothing) ZADD(score=3000) ZCARD=3 → ✅ allowed
+t=3001  ZREM(nothing) ZADD(score=3001) ZCARD=4 → 🚫 blocked (4 > 3)
+t=70000 ZREM(evicts scores 1000,2000,3000,3001) ZADD(score=70000) ZCARD=1 → ✅ allowed
+```
+
+`PEXPIRE` is set to `windowMs * 2` so keys from idle users auto-delete rather than sitting in Redis indefinitely.
+
+**Applied via `HandlerInterceptor`** registered on `/videos/*/reactions/**`. Runs after `JwtFilter` so `SecurityContextHolder` is populated and the key can be per-userId. Falls back to IP for unauthenticated requests.
+
+**Production alternative:** Bucket4j — a standard Java rate limiting library with Redis backend support, configurable as a servlet filter. Hides the ZSET/Lua details but handles edge cases and Redis Cluster routing automatically.

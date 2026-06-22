@@ -20,3 +20,9 @@ data class VideoResponse(
 )
 
 data class PlaybackUrlResponse(val playbackUrl: String)
+
+data class VideoPageResponse(
+    val videos: List<VideoResponse>,
+    val nextCursor: String?,
+    val hasMore: Boolean
+)

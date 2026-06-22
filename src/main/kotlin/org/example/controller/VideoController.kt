@@ -3,6 +3,7 @@ package org.example.controller
 import org.example.dto.PlaybackUrlResponse
 import org.example.dto.RegisterVideoRequest
 import org.example.dto.UploadUrlResponse
+import org.example.dto.VideoPageResponse
 import org.example.dto.VideoResponse
 import org.example.service.AnalyticsService
 import org.example.service.VideoService
@@ -36,7 +37,10 @@ class VideoController(
     }
 
     @GetMapping
-    fun list(): ResponseEntity<List<VideoResponse>> = ResponseEntity.ok(videoService.list())
+    fun list(
+        @RequestParam cursor: String?,
+        @RequestParam(defaultValue = "20") limit: Int
+    ): ResponseEntity<VideoPageResponse> = ResponseEntity.ok(videoService.list(cursor, limit))
 
     @GetMapping("/{id}")
     fun get(@PathVariable id: String): ResponseEntity<VideoResponse> {
