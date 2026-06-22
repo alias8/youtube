@@ -6,7 +6,9 @@ import org.example.dto.UploadUrlResponse
 import org.example.dto.VideoPageResponse
 import org.example.dto.VideoResponse
 import org.example.model.Video
+import org.example.model.VideoDocument
 import org.example.repository.VideoRepository
+import org.example.repository.VideoSearchRepository
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import java.time.Instant
@@ -15,6 +17,7 @@ import java.util.Base64
 @Service
 class VideoService(
     private val videoRepository: VideoRepository,
+    private val videoSearchRepository: VideoSearchRepository,
     private val s3Service: S3Service,
     private val kafkaEventProducer: KafkaEventProducer
 ) {
@@ -34,8 +37,14 @@ class VideoService(
             )
         )
         kafkaEventProducer.publishVideoRegistered(video.id)
+        // Index in ES after Postgres write. ES is a read model — if this fails, Postgres is still consistent.
+        runCatching { videoSearchRepository.save(video.toDocument()) }
         return video.toResponse()
     }
+
+    fun search(query: String, limit: Int = 20): List<VideoResponse> =
+        videoSearchRepository.search(query, PageRequest.of(0, limit))
+            .map { it.content.toResponse() }
 
     fun getById(id: String): Video? = videoRepository.findById(id).orElse(null)
 
@@ -72,6 +81,15 @@ class VideoService(
         return PlaybackUrlResponse(s3Service.generatePlaybackUrl(video.s3Key))
     }
 
+    private fun Video.toDocument() = VideoDocument(
+        id = id,
+        title = title,
+        description = description,
+        uploaderId = uploaderId,
+        status = status.name,
+        createdAt = createdAt
+    )
+
     private fun Video.toResponse() = VideoResponse(
         id = id,
         title = title,
@@ -81,5 +99,16 @@ class VideoService(
         status = status.name,
         createdAt = createdAt.toString(),
         viewCount = viewCount
+    )
+
+    private fun VideoDocument.toResponse() = VideoResponse(
+        id = id,
+        title = title,
+        description = description,
+        uploaderId = uploaderId,
+        durationSeconds = 0,
+        status = status,
+        createdAt = createdAt.toString(),
+        viewCount = 0
     )
 }

@@ -42,6 +42,12 @@ class VideoController(
         @RequestParam(defaultValue = "20") limit: Int
     ): ResponseEntity<VideoPageResponse> = ResponseEntity.ok(videoService.list(cursor, limit))
 
+    @GetMapping("/search")
+    fun search(
+        @RequestParam q: String,
+        @RequestParam(defaultValue = "20") limit: Int
+    ): ResponseEntity<List<VideoResponse>> = ResponseEntity.ok(videoService.search(q, limit))
+
     @GetMapping("/{id}")
     fun get(@PathVariable id: String): ResponseEntity<VideoResponse> {
         val video = videoService.getResponseById(id) ?: return ResponseEntity.notFound().build()
