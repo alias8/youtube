@@ -1,45 +1,67 @@
 package org.example.service
 
 import org.example.dto.HistogramResponse
-import org.example.model.VideoViewEvent
+import org.example.model.VideoHistogram
+import org.example.repository.VideoHistogramRepository
 import org.example.repository.VideoRepository
-import org.example.repository.VideoViewEventRepository
 import org.springframework.data.redis.core.RedisTemplate
 import org.springframework.stereotype.Service
 
-private const val BUCKET_COUNT = 100
+const val BUCKET_COUNT = 100
+const val PENDING_FLUSH_KEY = "pending-histogram-flush"
 
 @Service
 class AnalyticsService(
     private val videoRepository: VideoRepository,
-    private val videoViewEventRepository: VideoViewEventRepository,
+    private val videoHistogramRepository: VideoHistogramRepository,
     private val redisTemplate: RedisTemplate<String, String>,
     private val kafkaEventProducer: KafkaEventProducer
 ) {
     fun recordView(videoId: String, userId: String?, startSeconds: Long, endSeconds: Long) {
         val video = videoRepository.findById(videoId).orElse(null) ?: return
 
-        videoViewEventRepository.save(
-            VideoViewEvent(videoId = videoId, userId = userId, startSeconds = startSeconds, endSeconds = endSeconds)
-        )
-
+        // Save to Redis straight away, this is flushed every minute
         val duration = video.durationSeconds
         if (duration > 0) {
+            val histogramKey = "histogram:$videoId"
+            val hashOps = redisTemplate.opsForHash<String, String>()
+
+            // If the key is missing (first use or Redis restart), seed from Postgres so we
+            // don't overwrite historical counts with a partial accumulation on the next flush.
+            if (!redisTemplate.hasKey(histogramKey)) {
+                videoHistogramRepository.findById(videoId).ifPresent { persisted ->
+                    persisted.buckets.forEachIndexed { i, count ->
+                        if (count > 0) hashOps.putIfAbsent(histogramKey, i.toString(), count.toString())
+                    }
+                }
+            }
+
             val startBucket = ((startSeconds.toDouble() / duration) * BUCKET_COUNT).toInt().coerceIn(0, BUCKET_COUNT - 1)
             val endBucket = ((endSeconds.toDouble() / duration) * BUCKET_COUNT).toInt().coerceIn(0, BUCKET_COUNT - 1)
-            val hashOps = redisTemplate.opsForHash<String, String>()
             for (bucket in startBucket..endBucket) {
-                hashOps.increment("histogram:$videoId", bucket.toString(), 1)
+                hashOps.increment(histogramKey, bucket.toString(), 1)
             }
+            redisTemplate.opsForSet().add(PENDING_FLUSH_KEY, videoId)
         }
 
-        kafkaEventProducer.publishViewEvent(videoId)
+        kafkaEventProducer.publishViewEvent(videoId, userId, startSeconds, endSeconds)
     }
 
     fun getHistogram(videoId: String): HistogramResponse {
         val hashOps = redisTemplate.opsForHash<String, String>()
         val entries = hashOps.entries("histogram:$videoId")
+
+        if (entries.isEmpty()) {
+            // Redis is cold (restart or first read) — warm from Postgres
+            val persisted = videoHistogramRepository.findById(videoId).orElse(null)
+                ?: return HistogramResponse(videoId, List(BUCKET_COUNT) { 0L }, 0)
+            persisted.buckets.forEachIndexed { i, count ->
+                if (count > 0) hashOps.put("histogram:$videoId", i.toString(), count.toString())
+            }
+            return HistogramResponse(videoId, persisted.buckets, persisted.buckets.sum())
+        }
+
         val buckets = (0 until BUCKET_COUNT).map { i -> entries[i.toString()]?.toLong() ?: 0L }
-        return HistogramResponse(videoId = videoId, buckets = buckets, totalViews = buckets.sum())
+        return HistogramResponse(videoId, buckets, buckets.sum())
     }
 }

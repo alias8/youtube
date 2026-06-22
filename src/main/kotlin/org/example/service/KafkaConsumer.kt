@@ -12,7 +12,8 @@ class KafkaConsumer {
     }
 
     @KafkaListener(topics = ["view-event"], groupId = "youtube-group")
-    fun onViewEvent(videoId: String) {
-        // Flush Redis histogram to DB for durability, update trending scores, etc.
+    fun onViewEvent(payload: String) {
+        // In production: forward to cold storage (S3/GCS) for batch ML/recommendations.
+        // Histogram persistence is handled by HistogramFlushService.
     }
 }

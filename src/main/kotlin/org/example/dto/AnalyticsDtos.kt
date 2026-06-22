@@ -11,3 +11,5 @@ data class HistogramResponse(
     val buckets: List<Long>,
     val totalViews: Long
 )
+
+data class ViewEventMessage(val videoId: String, val userId: String?, val startSeconds: Long, val endSeconds: Long)
