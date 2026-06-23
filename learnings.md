@@ -204,3 +204,51 @@ t=70000 ZREM(evicts scores 1000,2000,3000,3001) ZADD(score=70000) ZCARD=1 → �
 **Applied via `HandlerInterceptor`** registered on `/videos/*/reactions/**`. Runs after `JwtFilter` so `SecurityContextHolder` is populated and the key can be per-userId. Falls back to IP for unauthenticated requests.
 
 **Production alternative:** Bucket4j — a standard Java rate limiting library with Redis backend support, configurable as a servlet filter. Hides the ZSET/Lua details but handles edge cases and Redis Cluster routing automatically.
+
+---
+
+## When to Use Kafka vs Redis vs DB (Interview Guide)
+
+### Write tier
+
+**Write directly to DB** when data is transactional, needs consistency, or is low frequency.
+- Examples: user registration, video upload, reactions
+- Correctness matters more than throughput; these happen rarely enough that DB latency is fine
+
+**Write to Redis first, flush to DB on a schedule** when you have high-frequency writes to the same record and can tolerate eventual persistence.
+- Examples: watch resume position (heartbeat every 30s per active user), view counts, histograms
+- Key property: **write amplification reduction** — 10,000 active users × 30s heartbeat = 10,000 DB writes/30s collapsed into one batch upsert
+- Use a **pending dirty set** alongside the value keys (e.g. `pending-watch-resume-flush`). The flush service reads only dirty entries rather than scanning all value keys. Without it, unchanged keys (e.g. a user who paused and walked away — their key persists in Redis with a 1-day TTL) would be re-flushed on every tick for no reason.
+
+**Write to Kafka, process async** when the downstream work is decoupled, needs fan-out to multiple consumers, or needs replayability.
+- Examples: video registered → trigger transcoding + thumbnail generation; view events → ML recommendations, cold storage
+- Latency tolerance: minutes to hours
+- Kafka is for *processing pipelines*, not *storing the latest value*
+
+### Read tier
+
+**Read from Redis** when you need sub-millisecond latency that Postgres can't reliably provide under load, or when the data is already in Redis from the write path.
+- Rate limit counters: checked and incremented on every request — microseconds matter, not milliseconds
+- View counts and resume positions: already written to Redis — serve from there, fall back to DB on cold cache. Don't go back to Postgres for data that's more up-to-date in Redis anyway.
+
+**Read directly from DB** for low-frequency reads or when consistency is required. A primary key lookup in Postgres is already fast — don't add caching complexity without evidence of a bottleneck.
+
+**Don't bother caching:**
+- Simple PK lookups — already fast
+- Elasticsearch query results — ES has its own query cache
+- Paginated lists — any new record invalidates the first page, making invalidation impractical
+
+### The immutability insight
+
+If a volatile field (e.g. view count) lives on the main entity row, that row gets hot under concurrent writes and can't be safely cached — any cache entry goes stale immediately. Move volatile fields to a separate table (`video_view_counts`) so the core entity row becomes effectively immutable after creation. An immutable row can be cached indefinitely with no invalidation logic needed.
+
+### Summary
+
+| Scenario | Tool | Why |
+|---|---|---|
+| Transactional / low frequency | DB directly | Correctness over throughput |
+| High-frequency updates to same key | Redis → flush to DB | Collapse N writes into 1 batch |
+| Decoupled processing / fan-out | Kafka | Multiple consumers, replayability |
+| Sub-ms read latency needed | Redis | Microseconds vs milliseconds |
+| Data already in Redis | Read from Redis | More up-to-date than DB anyway |
+| Simple PK lookup | DB directly | Already fast, no cache needed |
