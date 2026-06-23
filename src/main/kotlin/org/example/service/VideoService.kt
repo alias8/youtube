@@ -45,10 +45,9 @@ class VideoService(
     }
 
     fun search(query: String, limit: Int = 20, userId: String? = null): List<VideoResponse> {
-        val docs = videoSearchRepository.search(query, PageRequest.of(0, limit))
-        val videoIds = docs.map { it.content.id }
-        val progress = watchProgressMap(userId, videoIds)
-        return docs.map { it.content.toResponse(progress[it.content.id]) }
+        val hits = videoSearchRepository.search(query, PageRequest.of(0, limit)).toList()
+        val progress = watchProgressMap(userId, hits.map { it.content.id })
+        return hits.map { it.content.toResponse(progress[it.content.id]) }
     }
 
     fun getById(id: String): Video? = videoRepository.findById(id).orElse(null)
