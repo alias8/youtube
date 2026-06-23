@@ -41,16 +41,19 @@ class VideoService(
         kafkaEventProducer.publishVideoRegistered(video.id)
         // Index in ES after Postgres write. ES is a read model — if this fails, Postgres is still consistent.
         runCatching { videoSearchRepository.save(video.toDocument()) }
-        return video.toResponse()
+        return video.toResponse(lastWatchedSeconds = null)
     }
 
-    fun search(query: String, limit: Int = 20): List<VideoResponse> =
-        videoSearchRepository.search(query, PageRequest.of(0, limit))
-            .map { it.content.toResponse() }
+    fun search(query: String, limit: Int = 20, userId: String? = null): List<VideoResponse> {
+        val docs = videoSearchRepository.search(query, PageRequest.of(0, limit))
+        val videoIds = docs.map { it.content.id }
+        val progress = watchProgressMap(userId, videoIds)
+        return docs.map { it.content.toResponse(progress[it.content.id]) }
+    }
 
     fun getById(id: String): Video? = videoRepository.findById(id).orElse(null)
 
-    fun list(cursor: String?, limit: Int = 20): VideoPageResponse {
+    fun list(cursor: String?, limit: Int = 20, userId: String? = null): VideoPageResponse {
         val pageable = PageRequest.of(0, limit + 1)
         val videos = if (cursor == null) {
             videoRepository.findAllByOrderByCreatedAtDescIdDesc(pageable)
@@ -60,11 +63,18 @@ class VideoService(
         }
         val hasMore = videos.size > limit
         val page = if (hasMore) videos.dropLast(1) else videos
+        val progress = watchProgressMap(userId, page.map { it.id })
         return VideoPageResponse(
-            videos = page.map { it.toResponse() },
+            videos = page.map { it.toResponse(progress[it.id]) },
             nextCursor = if (hasMore) encodeCursor(page.last()) else null,
             hasMore = hasMore
         )
+    }
+
+    private fun watchProgressMap(userId: String?, videoIds: Collection<String>): Map<String, Long> {
+        if (userId == null || videoIds.isEmpty()) return emptyMap()
+        return watchHistoryRepository.findByUserIdAndVideoIdIn(userId, videoIds)
+            .associate { it.videoId to it.lastWatchedSeconds }
     }
 
     private fun encodeCursor(video: Video): String =
@@ -98,7 +108,7 @@ class VideoService(
         createdAt = createdAt
     )
 
-    private fun Video.toResponse(lastWatchedSeconds: Long? = null) = VideoResponse(
+    private fun Video.toResponse(lastWatchedSeconds: Long?) = VideoResponse(
         id = id,
         title = title,
         description = description,
@@ -110,7 +120,7 @@ class VideoService(
         lastWatchedSeconds = lastWatchedSeconds
     )
 
-    private fun VideoDocument.toResponse() = VideoResponse(
+    private fun VideoDocument.toResponse(lastWatchedSeconds: Long?) = VideoResponse(
         id = id,
         title = title,
         description = description,
@@ -118,6 +128,7 @@ class VideoService(
         durationSeconds = 0,
         status = status,
         createdAt = createdAt.toString(),
-        viewCount = 0
+        viewCount = 0,
+        lastWatchedSeconds = lastWatchedSeconds
     )
 }

@@ -18,7 +18,7 @@ data class VideoResponse(
     val status: String,
     val createdAt: String,
     val viewCount: Long,
-    val lastWatchedSeconds: Long? = null
+    val lastWatchedSeconds: Long?
 )
 
 data class PlaybackUrlResponse(val playbackUrl: String)

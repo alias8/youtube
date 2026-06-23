@@ -39,14 +39,16 @@ class VideoController(
     @GetMapping
     fun list(
         @RequestParam cursor: String?,
-        @RequestParam(defaultValue = "20") limit: Int
-    ): ResponseEntity<VideoPageResponse> = ResponseEntity.ok(videoService.list(cursor, limit))
+        @RequestParam(defaultValue = "20") limit: Int,
+        authentication: Authentication?
+    ): ResponseEntity<VideoPageResponse> = ResponseEntity.ok(videoService.list(cursor, limit, authentication?.name))
 
     @GetMapping("/search")
     fun search(
         @RequestParam q: String,
-        @RequestParam(defaultValue = "20") limit: Int
-    ): ResponseEntity<List<VideoResponse>> = ResponseEntity.ok(videoService.search(q, limit))
+        @RequestParam(defaultValue = "20") limit: Int,
+        authentication: Authentication?
+    ): ResponseEntity<List<VideoResponse>> = ResponseEntity.ok(videoService.search(q, limit, authentication?.name))
 
     @GetMapping("/{id}")
     fun get(
