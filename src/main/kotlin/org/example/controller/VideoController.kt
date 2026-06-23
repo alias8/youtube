@@ -49,8 +49,11 @@ class VideoController(
     ): ResponseEntity<List<VideoResponse>> = ResponseEntity.ok(videoService.search(q, limit))
 
     @GetMapping("/{id}")
-    fun get(@PathVariable id: String): ResponseEntity<VideoResponse> {
-        val video = videoService.getResponseById(id) ?: return ResponseEntity.notFound().build()
+    fun get(
+        @PathVariable id: String,
+        authentication: Authentication?
+    ): ResponseEntity<VideoResponse> {
+        val video = videoService.getResponseById(id, authentication?.name) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(video)
     }
 

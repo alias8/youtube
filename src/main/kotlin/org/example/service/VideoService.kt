@@ -9,6 +9,7 @@ import org.example.model.Video
 import org.example.model.VideoDocument
 import org.example.repository.VideoRepository
 import org.example.repository.VideoSearchRepository
+import org.example.repository.WatchHistoryRepository
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import java.time.Instant
@@ -18,6 +19,7 @@ import java.util.Base64
 class VideoService(
     private val videoRepository: VideoRepository,
     private val videoSearchRepository: VideoSearchRepository,
+    private val watchHistoryRepository: WatchHistoryRepository,
     private val s3Service: S3Service,
     private val kafkaEventProducer: KafkaEventProducer
 ) {
@@ -74,7 +76,13 @@ class VideoService(
         return Instant.ofEpochMilli(epochMilli.toLong()) to id
     }
 
-    fun getResponseById(id: String): VideoResponse? = videoRepository.findById(id).orElse(null)?.toResponse()
+    fun getResponseById(id: String, userId: String? = null): VideoResponse? {
+        val video = videoRepository.findById(id).orElse(null) ?: return null
+        val lastWatchedSeconds = userId?.let {
+            watchHistoryRepository.findByUserIdAndVideoId(it, id)?.lastWatchedSeconds
+        }
+        return video.toResponse(lastWatchedSeconds)
+    }
 
     fun getPlaybackUrl(id: String): PlaybackUrlResponse? {
         val video = getById(id) ?: return null
@@ -90,7 +98,7 @@ class VideoService(
         createdAt = createdAt
     )
 
-    private fun Video.toResponse() = VideoResponse(
+    private fun Video.toResponse(lastWatchedSeconds: Long? = null) = VideoResponse(
         id = id,
         title = title,
         description = description,
@@ -98,7 +106,8 @@ class VideoService(
         durationSeconds = durationSeconds,
         status = status.name,
         createdAt = createdAt.toString(),
-        viewCount = viewCount
+        viewCount = viewCount,
+        lastWatchedSeconds = lastWatchedSeconds
     )
 
     private fun VideoDocument.toResponse() = VideoResponse(
