@@ -13,7 +13,7 @@ class WatchResumeFlushService(
 ) {
     @Scheduled(fixedDelay = 30_000)
     fun flush() {
-        val entries = mutableListOf<String>()
+        val entries = mutableListOf<String>() // "$userId:$videoId"
         val scanOptions = ScanOptions.scanOptions().count(1000).build()
         // SSCAN via .scan(...).use { } — cursor-based, non-blocking, processes in batches of ~1000 instead of loading everything at once
         redisTemplate.opsForSet().scan(PENDING_WATCH_RESUME_FLUSH_KEY, scanOptions).use { cursor ->

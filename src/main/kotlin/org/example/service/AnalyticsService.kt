@@ -64,6 +64,12 @@ class AnalyticsService(
             lastWatchedSeconds.toString(),
             Duration.ofDays(1)
         )
+        /*
+        * For the edge case:
+        * In practice while someone is actively watching this distinction barely matters (they're sending heartbeats every 30s anyway). But for users who paused 
+          and walked away, their key sits in Redis with a 1-day TTL and would get re-flushed on every tick with no benefit. The pending set means once it's      
+          flushed and removed, it's not touched again until the next write. 
+        * */
         redisTemplate.opsForSet().add(PENDING_WATCH_RESUME_FLUSH_KEY, "$userId:$videoId")
     }
 
