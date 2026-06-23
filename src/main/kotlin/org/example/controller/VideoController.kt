@@ -67,7 +67,7 @@ class VideoController(
 
     // Client calls this after 10 seconds of actual playback to record the video in watch history.
     @PostMapping("/{id}/watched")
-    fun markWatched(
+    fun markStartedPlayback(
         @PathVariable id: String,
         authentication: Authentication
     ): ResponseEntity<Void> {

@@ -50,8 +50,9 @@ class AnalyticsService(
             }
             redisTemplate.opsForSet().add(PENDING_FLUSH_KEY, videoId)
         }
-
-        updateLastWatchedSeconds(videoId, userId, endSeconds)
+        
+        val finished = duration > 0 && endSeconds >= duration * 0.95
+        updateLastWatchedSeconds(videoId, userId, if (finished) 0L else endSeconds)
         kafkaEventProducer.publishViewEvent(videoId, userId, startSeconds, endSeconds)
     }
     
