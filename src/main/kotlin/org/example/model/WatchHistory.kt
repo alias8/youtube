@@ -8,7 +8,7 @@ import java.time.Instant
     name = "watch_history",
     uniqueConstraints = [UniqueConstraint(columnNames = ["user_id", "video_id"])]
 )
-data class WatchHistory(
+class WatchHistory(
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     val id: String = "",
@@ -19,7 +19,7 @@ data class WatchHistory(
     @Column(name = "video_id", nullable = false)
     val videoId: String = "",
 
-    val watchedAt: Instant = Instant.now(),
+    var watchedAt: Instant = Instant.now(),
 
     val lastWatchedSeconds: Long = 0
 )

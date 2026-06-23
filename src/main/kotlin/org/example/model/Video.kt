@@ -5,7 +5,7 @@ import java.time.Instant
 
 @Entity
 @Table(name = "videos")
-data class Video(
+class Video(
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     val id: String = "",

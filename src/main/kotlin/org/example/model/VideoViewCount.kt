@@ -6,7 +6,7 @@ import jakarta.persistence.Table
 
 @Entity
 @Table(name = "video_view_counts")
-data class VideoViewCount(
+class VideoViewCount(
     @Id
     val videoId: String,
     val count: Long = 0

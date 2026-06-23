@@ -21,7 +21,8 @@ class ReactionService(
             // Switching reaction type — seed both keys before touching either counter
             seedIfAbsent(videoId, existing.type)
             seedIfAbsent(videoId, newType)
-            videoReactionRepository.save(existing.copy(type = newType))
+            existing.type = newType
+            videoReactionRepository.save(existing)
             redisTemplate.opsForValue().increment(reactionCountKey(videoId, existing.type), -1)
             redisTemplate.opsForValue().increment(reactionCountKey(videoId, newType), 1)
         } else {

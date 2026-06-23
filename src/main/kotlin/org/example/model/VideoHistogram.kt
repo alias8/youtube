@@ -13,7 +13,7 @@ import java.time.Instant
 
 @Entity
 @Table(name = "video_histograms")
-data class VideoHistogram(
+class VideoHistogram(
     @Id
     val videoId: String = "",
 

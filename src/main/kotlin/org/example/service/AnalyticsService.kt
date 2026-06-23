@@ -77,7 +77,7 @@ class AnalyticsService(
     fun markWatched(videoId: String, userId: String) {
         val existing = watchHistoryRepository.findByUserIdAndVideoId(userId, videoId)
         watchHistoryRepository.save(
-            existing?.copy(watchedAt = Instant.now())
+            existing?.apply { watchedAt = Instant.now() }
                 ?: WatchHistory(userId = userId, videoId = videoId)
         )
 

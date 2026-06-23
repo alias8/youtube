@@ -7,7 +7,7 @@ import jakarta.persistence.*
     name = "video_reactions",
     uniqueConstraints = [UniqueConstraint(columnNames = ["user_id", "video_id"])]
 )
-data class VideoReaction(
+class VideoReaction(
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     val id: String = "",
@@ -20,7 +20,7 @@ data class VideoReaction(
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    val type: ReactionType = ReactionType.LIKE
+    var type: ReactionType = ReactionType.LIKE
 )
 
 enum class ReactionType { LIKE, DISLIKE }
