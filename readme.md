@@ -28,6 +28,15 @@ A backend-only YouTube clone built in Kotlin with Spring Boot. Designed as an in
 
 **Rate limiting.** Reactions are rate-limited to 20 per minute per authenticated user (or IP for anonymous). Enforced with a Redis sliding window.
 
+**Feature flags.** `FeatureFlagClient` subscribes to the [feature-flag-service](https://github.com/alias8/feature-flag-service-kotlin) SSE stream on startup and caches all flags in memory. When a flag is evaluated for a user, the logic is:
+
+1. Flag not found in cache → `false`
+2. Flag's `enabled` field is `false` → `false` (global kill-switch)
+3. User has a per-user override → return that override directly
+4. Otherwise: hash `"flagName:userId"` with MurmurHash3 (32-bit) to produce a stable bucket in 0–99. If the bucket is below the flag's `rolloutPercentage`, the flag is `true` for that user.
+
+The hash includes the flag name so that a user who lands in the bottom 10% for one flag doesn't necessarily land there for every flag. The same user always gets the same bucket for a given flag (deterministic), so their experience doesn't flip between requests. Flag updates are pushed from the service as SSE `patch` events and update the cache in-place, so rollout changes take effect immediately without restarting the app.
+
 ## Assumptions
 
 - No frontend — this is a pure REST API.

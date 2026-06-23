@@ -6,6 +6,7 @@ import org.example.dto.UploadUrlResponse
 import org.example.dto.VideoPageResponse
 import org.example.dto.VideoResponse
 import org.example.service.AnalyticsService
+import org.example.service.FeatureFlagClient
 import org.example.service.VideoService
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -16,7 +17,8 @@ import org.springframework.web.bind.annotation.*
 @RequestMapping("/videos")
 class VideoController(
     private val videoService: VideoService,
-    private val analyticsService: AnalyticsService
+    private val analyticsService: AnalyticsService,
+    private val featureFlagClient: FeatureFlagClient
 ) {
 
     @GetMapping("/upload-url")
@@ -55,6 +57,7 @@ class VideoController(
         @PathVariable id: String,
         authentication: Authentication?
     ): ResponseEntity<VideoResponse> {
+        val someFeatureEnabled = featureFlagClient.isEnabled("some-feature", authentication?.name ?: "")
         val video = videoService.getResponseById(id, authentication?.name) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(video)
     }
