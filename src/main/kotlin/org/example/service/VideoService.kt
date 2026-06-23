@@ -9,8 +9,10 @@ import org.example.model.Video
 import org.example.model.VideoDocument
 import org.example.repository.VideoRepository
 import org.example.repository.VideoSearchRepository
+import org.example.repository.VideoViewCountRepository
 import org.example.repository.WatchHistoryRepository
 import org.springframework.data.domain.PageRequest
+import org.springframework.data.redis.core.RedisTemplate
 import org.springframework.stereotype.Service
 import java.time.Instant
 import java.util.Base64
@@ -20,6 +22,8 @@ class VideoService(
     private val videoRepository: VideoRepository,
     private val videoSearchRepository: VideoSearchRepository,
     private val watchHistoryRepository: WatchHistoryRepository,
+    private val videoViewCountRepository: VideoViewCountRepository,
+    private val redisTemplate: RedisTemplate<String, String>,
     private val s3Service: S3Service,
     private val kafkaEventProducer: KafkaEventProducer
 ) {
@@ -41,13 +45,15 @@ class VideoService(
         kafkaEventProducer.publishVideoRegistered(video.id)
         // Index in ES after Postgres write. ES is a read model — if this fails, Postgres is still consistent.
         runCatching { videoSearchRepository.save(video.toDocument()) }
-        return video.toResponse(lastWatchedSeconds = null)
+        return video.toResponse(lastWatchedSeconds = null, viewCount = 0L)
     }
 
     fun search(query: String, limit: Int = 20, userId: String? = null): List<VideoResponse> {
         val hits = videoSearchRepository.search(query, PageRequest.of(0, limit)).toList()
-        val progress = watchProgressMap(userId, hits.map { it.content.id })
-        return hits.map { it.content.toResponse(progress[it.content.id]) }
+        val ids = hits.map { it.content.id }
+        val progress = watchProgressMap(userId, ids)
+        val counts = viewCountMap(ids)
+        return hits.map { it.content.toResponse(progress[it.content.id], counts[it.content.id] ?: 0L) }
     }
 
     fun getById(id: String): Video? = videoRepository.findById(id).orElse(null)
@@ -63,8 +69,9 @@ class VideoService(
         val hasMore = videos.size > limit
         val page = if (hasMore) videos.dropLast(1) else videos
         val progress = watchProgressMap(userId, page.map { it.id })
+        val counts = viewCountMap(page.map { it.id })
         return VideoPageResponse(
-            videos = page.map { it.toResponse(progress[it.id]) },
+            videos = page.map { it.toResponse(progress[it.id], counts[it.id] ?: 0L) },
             nextCursor = if (hasMore) encodeCursor(page.last()) else null,
             hasMore = hasMore
         )
@@ -74,6 +81,22 @@ class VideoService(
         if (userId == null || videoIds.isEmpty()) return emptyMap()
         return watchHistoryRepository.findByUserIdAndVideoIdIn(userId, videoIds)
             .associate { it.videoId to it.lastWatchedSeconds }
+    }
+
+    private fun viewCountMap(videoIds: Collection<String>): Map<String, Long> {
+        if (videoIds.isEmpty()) return emptyMap()
+        val keys = videoIds.map { "views:total:$it" }
+        val values = redisTemplate.opsForValue().multiGet(keys) ?: return emptyMap()
+        val result = mutableMapOf<String, Long>()
+        val misses = mutableListOf<String>()
+        videoIds.zip(values).forEach { (videoId, value) ->
+            if (value != null) result[videoId] = value.toLong()
+            else misses.add(videoId)
+        }
+        if (misses.isNotEmpty()) {
+            videoViewCountRepository.findAllById(misses).forEach { result[it.videoId] = it.count }
+        }
+        return result
     }
 
     private fun encodeCursor(video: Video): String =
@@ -90,7 +113,7 @@ class VideoService(
         val lastWatchedSeconds = userId?.let {
             watchHistoryRepository.findByUserIdAndVideoId(it, id)?.lastWatchedSeconds
         }
-        return video.toResponse(lastWatchedSeconds)
+        return video.toResponse(lastWatchedSeconds, viewCountMap(listOf(id))[id] ?: 0L)
     }
 
     fun getPlaybackUrl(id: String): PlaybackUrlResponse? {
@@ -107,7 +130,7 @@ class VideoService(
         createdAt = createdAt
     )
 
-    private fun Video.toResponse(lastWatchedSeconds: Long?) = VideoResponse(
+    private fun Video.toResponse(lastWatchedSeconds: Long?, viewCount: Long) = VideoResponse(
         id = id,
         title = title,
         description = description,
@@ -119,7 +142,7 @@ class VideoService(
         lastWatchedSeconds = lastWatchedSeconds
     )
 
-    private fun VideoDocument.toResponse(lastWatchedSeconds: Long?) = VideoResponse(
+    private fun VideoDocument.toResponse(lastWatchedSeconds: Long?, viewCount: Long) = VideoResponse(
         id = id,
         title = title,
         description = description,
@@ -127,7 +150,7 @@ class VideoService(
         durationSeconds = 0,
         status = status,
         createdAt = createdAt.toString(),
-        viewCount = 0,
+        viewCount = viewCount,
         lastWatchedSeconds = lastWatchedSeconds
     )
 }

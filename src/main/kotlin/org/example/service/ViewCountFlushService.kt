@@ -24,24 +24,17 @@ class ViewCountFlushService(
         val counts = redisTemplate.opsForValue().multiGet(keys) ?: return // eg ["1500", null, "87"]
 
         val rows = videoIds.zip(counts).mapNotNull { (videoId, count) ->
-            count?.toLongOrNull()?.let { arrayOf<Any>(it, videoId) }
+            count?.toLongOrNull()?.let { arrayOf<Any>(videoId, it) }
         }
         if (rows.isEmpty()) return
 
-        /*
-        * So if rows is:                                                                                                                                         
-          [                                                                                                                                                      
-              arrayOf(1500L, "video-abc"),                                                                                                                       
-              arrayOf(342L,  "video-xyz"),                                                                                                                       
-              arrayOf(87L,   "video-def")                                                                                                                        
-          ]  
-          * 
-          * It executes:                                                                                                                                           
-          UPDATE videos SET view_count = 1500 WHERE id = 'video-abc'                                                                                             
-          UPDATE videos SET view_count = 342  WHERE id = 'video-xyz'                                                                                             
-          UPDATE videos SET view_count = 87   WHERE id = 'video-def' 
-        * */
-        jdbcTemplate.batchUpdate("UPDATE videos SET view_count = ? WHERE id = ?", rows)
+        jdbcTemplate.batchUpdate(
+            """
+            INSERT INTO video_view_counts (video_id, count) VALUES (?, ?)
+            ON CONFLICT (video_id) DO UPDATE SET count = EXCLUDED.count
+            """.trimIndent(),
+            rows
+        )
 
         redisTemplate.opsForSet().remove(PENDING_VIEW_COUNT_FLUSH_KEY, *videoIds.toTypedArray())
     }
